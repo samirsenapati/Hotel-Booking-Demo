@@ -5,58 +5,62 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   generate-release-notes:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Gather commit messages
-        id: commits
         run: |
-          echo "COMMITS<<EOF" >> $GITHUB_ENV
-          git log -n 10 --pretty=format:'%h %s' >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          {
+            echo "COMMITS<<EOF"
+            git log -n 10 --pretty=format:'%h %s'
+            echo "EOF"
+          } >> $GITHUB_ENV
 
-      - name: Generate release notes with OpenAI GPT‑4
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Generate release notes with OpenAI GPT-4
+        id: generate_notes
         run: |
-          payload=$(jq -n --arg commits "$COMMITS" '{
-            model:"gpt-4o-mini",
-            messages:[
-              { "role":"system", "content":"You are a helpful technical writer for the Hotel Booking SaaS." },
-              { "role":"user", "content":"Write clear, customer‑facing release notes for these commits:\n\n\($commits)" }
-            ]
-          }')
-          result=$(curl -s https://api.openai.com/v1/chat/completions                        -H "Content-Type: application/json"                        -H "Authorization: Bearer $OPENAI_API_KEY"                        -d "$payload" | jq -r '.choices[0].message.content')
-          echo "$result" > RELEASE_NOTES.md
+          echo "$COMMITS"
+
+          NOTES=$(curl https://api.openai.com/v1/chat/completions \
+            -s \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+            -d '{
+              "model": "gpt-4",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are an assistant that creates concise software release notes from git commit messages."
+                },
+                {
+                  "role": "user",
+                  "content": "Commit messages:\n'"$COMMITS"'"
+                }
+              ],
+              "temperature": 0.5
+            }' | jq -r '.choices[0].message.content')
+
+          echo "$NOTES" > docs/CHANGELOG.md
 
       - name: Commit release notes to new branch
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          BRANCH=ai-release-${TAG}
-          FILE=docs/release-${TAG}.md
-          mkdir -p docs
-          mv RELEASE_NOTES.md "$FILE"
-
-          git config user.name "AI Doc Bot"
-          git config user.email "aidocbot@example.com"
-          git checkout -b "$BRANCH"
-          git add "$FILE"
-          git commit -m "docs: add AI‑generated release notes for $TAG"
-          git push -u origin "$BRANCH"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -b release-notes-${{ github.ref_name }}
+          git add docs/CHANGELOG.md
+          git commit -m "docs: release notes for ${{ github.ref_name }}"
+          git push origin release-notes-${{ github.ref_name }}
 
       - name: Open pull request
-        uses: peter-evans/create-pull-request@v6
+        uses: repo-sync/pull-request@v2
         with:
-          title: 'docs: release notes for ${{ github.ref_name }}'
-          body: |
-            This PR was created automatically by **AI Doc Bot**.
-            Please review the generated release notes for Hotel Booking.
-          branch: ${{ env.BRANCH }}
+          source_branch: release-notes-${{ github.ref_name }}
+          destination_branch: main
+          pr_title: "docs: release notes for ${{ github.ref_name }}"
+          pr_body: "This pull request contains AI-generated release notes."
+          github_token: ${{ secrets.GITHUB_TOKEN }}
