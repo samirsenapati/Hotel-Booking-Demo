@@ -1,0 +1,62 @@
+name: AI Release Notes
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Gather commit messages
+        id: commits
+        run: |
+          echo "COMMITS<<EOF" >> $GITHUB_ENV
+          git log -1 --pretty=format:'%h %s' >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Generate release notes with OpenAI GPT‑4
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          payload=$(jq -n --arg commits "$COMMITS" '{
+            model:"gpt-4o-mini",
+            messages:[
+              { "role":"system", "content":"You are a helpful technical writer for the Hotel Booking SaaS." },
+              { "role":"user", "content":"Write clear, customer‑facing release notes for these commits:\n\n\($commits)" }
+            ]
+          }')
+          result=$(curl -s https://api.openai.com/v1/chat/completions                        -H "Content-Type: application/json"                        -H "Authorization: Bearer $OPENAI_API_KEY"                        -d "$payload" | jq -r '.choices[0].message.content')
+          echo "$result" > RELEASE_NOTES.md
+
+      - name: Commit release notes to new branch
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          BRANCH=ai-release-${TAG}
+          FILE=docs/release-${TAG}.md
+          mkdir -p docs
+          mv RELEASE_NOTES.md "$FILE"
+
+          git config user.name "AI Doc Bot"
+          git config user.email "aidocbot@example.com"
+          git checkout -b "$BRANCH"
+          git add "$FILE"
+          git commit -m "docs: add AI‑generated release notes for $TAG"
+          git push -u origin "$BRANCH"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: 'docs: release notes for ${{ github.ref_name }}'
+          body: |
+            This PR was created automatically by **AI Doc Bot**.
+            Please review the generated release notes for Hotel Booking.
+          branch: ${{ env.BRANCH }}
