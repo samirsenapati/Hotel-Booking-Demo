@@ -20,7 +20,7 @@ jobs:
         id: commits
         run: |
           echo "COMMITS<<EOF" >> $GITHUB_ENV
-          git log -1 --pretty=format:'%h %s' >> $GITHUB_ENV
+          git log -n 10 --pretty=format:'%h %s' >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Generate release notes with OpenAI GPT‑4
