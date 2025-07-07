@@ -15,11 +15,9 @@ jobs:
 
       - name: Gather commit messages
         run: |
-          {
-            echo "COMMITS<<EOF"
-            git log -n 10 --pretty=format:'%h %s'
-            echo "EOF"
-          } >> $GITHUB_ENV
+          echo "COMMITS<<EOF" >> $GITHUB_ENV
+          git log -n 10 --pretty=format:'%h %s' >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Generate release notes with OpenAI GPT-4
         id: generate_notes
@@ -45,22 +43,21 @@ jobs:
               "temperature": 0.5
             }' | jq -r '.choices[0].message.content')
 
-          echo "$NOTES" > docs/CHANGELOG.md
+          echo "$NOTES"
 
       - name: Commit release notes to new branch
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git checkout -b release-notes-${{ github.ref_name }}
-          git add docs/CHANGELOG.md
-          git commit -m "docs: release notes for ${{ github.ref_name }}"
-          git push origin release-notes-${{ github.ref_name }}
+          git checkout -b release-notes
+          echo "$NOTES" > RELEASE_NOTES.md
+          git add RELEASE_NOTES.md
+          git commit -m "Add AI-generated release notes"
+          git push origin release-notes
 
       - name: Open pull request
         uses: repo-sync/pull-request@v2
         with:
-          source_branch: release-notes-${{ github.ref_name }}
-          destination_branch: main
-          pr_title: "docs: release notes for ${{ github.ref_name }}"
-          pr_body: "This pull request contains AI-generated release notes."
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          source_branch: "release-notes"
+          destination_branch: "main"
+          pr_title: "AI-generated release notes"
